@@ -7,26 +7,49 @@
 
 package main
 
+import (
+	"unsafe"
+)
+
 /*
 #include <linux/kvm.h>
+#include <stdint.h>
 
 const int ioctl_KVM_CREATE_VM = KVM_CREATE_VM;
+
+//TODO; Have IOCTL request until ACRN patches are upstreamed.
+const int ioctl_ACRN_CREATE_VM  = 0x43000010;
+
+struct acrn_create_vm {
+	uint16_t vmid;
+	uint16_t reserved0;
+	uint16_t vcpu_num;
+	uint16_t reserved1;
+	uint8_t	 uuid[16];
+	uint64_t vm_flag;
+	uint64_t req_buf;
+	uint8_t  reserved2[16];
+}__attribute__((aligned(8)));
+
+struct acrn_create_vm create_vm = {
+	.uuid = {0xd2U, 0x79U, 0x54U, 0x38U, 0x25U, 0xd6U, 0x11U, 0xe8U,	\
+		0x86U, 0x4eU, 0xcbU, 0x7aU, 0x18U, 0xb3U, 0x46U, 0x43U}
+};
 */
 import "C"
 
 import (
 	"fmt"
+	"github.com/kata-containers/runtime/pkg/katautils"
+	vc "github.com/kata-containers/runtime/virtcontainers"
+	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
-
-	"github.com/kata-containers/runtime/pkg/katautils"
-	vc "github.com/kata-containers/runtime/virtcontainers"
-	"github.com/sirupsen/logrus"
-	"github.com/urfave/cli"
 )
 
 type kernelModule struct {
@@ -69,7 +92,8 @@ var (
 
 // variables rather than consts to allow tests to modify them
 var (
-	kvmDevice = "/dev/kvm"
+	kvmDevice  = "/dev/kvm"
+	acrnDevice = "/dev/acrn_vhm"
 )
 
 // getCPUInfo returns details of the first CPU read from the specified cpuinfo file
@@ -322,7 +346,12 @@ var kataCheckCLICommand = cli.Command{
 		kataLog.Info(successMessageCapable)
 
 		if os.Geteuid() == 0 {
-			err = archHostCanCreateVMContainer()
+			onVMM, err := vc.RunningOnVMM(procCPUInfo)
+			if err != nil {
+				return err
+			}
+
+			err = archHostCanCreateVMContainer(onVMM)
 			if err != nil {
 				return err
 			}
@@ -380,6 +409,39 @@ func genericKvmIsUsable() error {
 			fieldLogger.WithField("reason", "another hypervisor running").Error("cannot create VM")
 		}
 
+		return errno
+	}
+	defer syscall.Close(int(vm))
+
+	fieldLogger.WithField("feature", "create-vm").Info("feature available")
+
+	return nil
+}
+
+// genericAcrnIsUsable determines if it will be possible to create a full virtual machine
+// by creating a minimal VM and then deleting it.
+func genericAcrnIsUsable() error {
+	flags := syscall.O_RDWR | syscall.O_CLOEXEC
+
+	f, err := syscall.Open(acrnDevice, flags, 0)
+	if err != nil {
+		return err
+	}
+	defer syscall.Close(f)
+
+	fieldLogger := kataLog.WithField("check-type", "full")
+
+	fieldLogger.WithField("device", acrnDevice).Info("device available")
+
+	vm, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
+		uintptr(f),
+		uintptr(C.ioctl_ACRN_CREATE_VM),
+		uintptr(unsafe.Pointer(&C.create_vm)))
+	if errno != 0 {
+		if errno == syscall.EBUSY {
+			fieldLogger.WithField("reason", "another hypervisor running").Error("cannot create VM")
+		}
+		fieldLogger.Infof("ACRN IOCTL Errno=%d", errno)
 		return errno
 	}
 	defer syscall.Close(int(vm))

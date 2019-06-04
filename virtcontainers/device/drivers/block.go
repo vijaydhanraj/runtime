@@ -83,7 +83,10 @@ func (device *BlockDevice) Attach(devReceiver api.DeviceReceiver) (err error) {
 
 		switch customOptions["block-driver"] {
 		case "virtio-blk":
-			globalIdx = index
+			//With ACRN the rootfs for the VM itself
+			//sits at /dev/vda and consumes the first index.
+			globalIdx = index + 1
+
 		case "virtio-mmio":
 			//With firecracker the rootfs for the VM itself
 			//sits at /dev/vda and consumes the first index.
