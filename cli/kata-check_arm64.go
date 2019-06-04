@@ -57,7 +57,7 @@ func kvmIsUsable() error {
 	return genericKvmIsUsable()
 }
 
-func archHostCanCreateVMContainer() error {
+func archHostCanCreateVMContainer(onVMM bool) error {
 	return kvmIsUsable()
 }
 

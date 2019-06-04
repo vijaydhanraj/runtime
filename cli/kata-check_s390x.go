@@ -7,8 +7,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -52,7 +53,7 @@ func kvmIsUsable() error {
 	return genericKvmIsUsable()
 }
 
-func archHostCanCreateVMContainer() error {
+func archHostCanCreateVMContainer(onVMM bool) error {
 	return kvmIsUsable()
 }
 

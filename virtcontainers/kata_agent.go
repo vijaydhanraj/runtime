@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	aTypes "github.com/kata-containers/agent/pkg/types"
 	kataclient "github.com/kata-containers/agent/protocols/client"
 	"github.com/kata-containers/agent/protocols/grpc"
@@ -30,10 +31,8 @@ import (
 	"github.com/kata-containers/runtime/virtcontainers/store"
 	"github.com/kata-containers/runtime/virtcontainers/types"
 	"github.com/kata-containers/runtime/virtcontainers/utils"
-	opentracing "github.com/opentracing/opentracing-go"
-
-	"github.com/gogo/protobuf/proto"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/net/context"
@@ -53,7 +52,7 @@ const (
 )
 
 var (
-	checkRequestTimeout   = 30 * time.Second
+	checkRequestTimeout   = time.Duration(30) * time.Second
 	defaultKataSocketName = "kata.sock"
 	defaultKataChannel    = "agent.channel.0"
 	defaultKataDeviceID   = "channel0"
@@ -1084,7 +1083,14 @@ func (k *kataAgent) buildContainerRootfs(sandbox *Sandbox, c *Container, rootPat
 			rootfs.Source = blockDrive.VirtPath
 		} else if sandbox.config.HypervisorConfig.BlockDeviceDriver == config.VirtioBlock {
 			rootfs.Driver = kataBlkDevType
-			rootfs.Source = blockDrive.PCIAddr
+			if blockDrive.PCIAddr == "" {
+				k.Logger().Infof("BuildContainerRootfs: VirtPath=%s, PCIAddr=%s", blockDrive.VirtPath, blockDrive.PCIAddr)
+				rootfs.Source = blockDrive.VirtPath
+			} else {
+				k.Logger().Infof("BuildContainerRootfs: PCIAddr=%s, VirtPath=%s", blockDrive.PCIAddr, blockDrive.VirtPath)
+				rootfs.Source = blockDrive.PCIAddr
+			}
+
 		} else {
 			rootfs.Driver = kataSCSIDevType
 			rootfs.Source = blockDrive.SCSIAddr
@@ -1598,6 +1604,7 @@ func (k *kataAgent) connect() error {
 		return err
 	}
 
+	k.Logger().Info("New client after NewAgentClient and before Install")
 	k.installReqFunc(client)
 	k.client = client
 
@@ -1689,7 +1696,11 @@ func (k *kataAgent) installReqFunc(c *kataclient.AgentClient) {
 	k.reqHandlers = make(map[string]reqFunc)
 	k.reqHandlers["grpc.CheckRequest"] = func(ctx context.Context, req interface{}, opts ...golangGrpc.CallOption) (interface{}, error) {
 		ctx, cancel := context.WithTimeout(ctx, checkRequestTimeout)
-		defer cancel()
+		defer func() {
+			k.Logger().Info("calling CANCEL as k.client.Check failed")
+			cancel()
+		}()
+		k.Logger().WithField("Timeout", checkRequestTimeout).Info("calling k.client.Check as send request")
 		return k.client.Check(ctx, req.(*grpc.CheckRequest), opts...)
 	}
 	k.reqHandlers["grpc.ExecProcessRequest"] = func(ctx context.Context, req interface{}, opts ...golangGrpc.CallOption) (interface{}, error) {
@@ -1797,6 +1808,7 @@ func (k *kataAgent) sendReq(request interface{}) (interface{}, error) {
 		defer k.disconnect()
 	}
 
+	k.Logger().Info("After successfull connect()")
 	msgName := proto.MessageName(request.(proto.Message))
 	handler := k.reqHandlers[msgName]
 	if msgName == "" || handler == nil {

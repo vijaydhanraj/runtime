@@ -7,11 +7,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"strings"
 
 	vc "github.com/kata-containers/runtime/virtcontainers"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -66,36 +66,56 @@ func setCPUtype() error {
 				"unrestricted_guest": "Y",
 			}
 		}
-		archRequiredCPUFlags = map[string]string{
-			"vmx":    "Virtualization support",
-			"lm":     "64Bit CPU",
-			"sse4_1": "SSE4.1",
-		}
-		archRequiredCPUAttribs = map[string]string{
-			archGenuineIntel: "Intel Architecture CPU",
-		}
-		archRequiredKernelModules = map[string]kernelModule{
-			"kvm": {
-				desc:     msgKernelVM,
-				required: true,
-			},
-			"kvm_intel": {
-				desc:       "Intel KVM",
-				parameters: kvmIntelParams,
-				required:   true,
-			},
-			"vhost": {
-				desc:     msgKernelVirtio,
-				required: true,
-			},
-			"vhost_net": {
-				desc:     msgKernelVirtioNet,
-				required: true,
-			},
-			"vhost_vsock": {
-				desc:     msgKernelVirtioVhostVsock,
-				required: false,
-			},
+
+		if err != nil {
+			return err
+		} else if onVMM { //Type-I hypervisor case
+			archRequiredCPUFlags = map[string]string{
+				"lm":     "64Bit CPU",
+				"sse4_1": "SSE4.1",
+			}
+			archRequiredCPUAttribs = map[string]string{
+				archGenuineIntel: "Intel Architecture CPU",
+			}
+			archRequiredKernelModules = map[string]kernelModule{
+				"vhm_dev": {
+					desc: "Intel ACRN",
+				},
+				"vhost": {
+					desc: msgKernelVirtio,
+				},
+				"vhost_net": {
+					desc: msgKernelVirtioNet,
+				},
+			}
+		} else { //Type-II Hypervisor
+			archRequiredCPUFlags = map[string]string{
+				"vmx":    "Virtualization support",
+				"lm":     "64Bit CPU",
+				"sse4_1": "SSE4.1",
+			}
+			archRequiredCPUAttribs = map[string]string{
+				archGenuineIntel: "Intel Architecture CPU",
+			}
+			archRequiredKernelModules = map[string]kernelModule{
+				"kvm": {
+					desc: msgKernelVM,
+				},
+				"kvm_intel": {
+					desc:       "Intel KVM",
+					parameters: kvmIntelParams,
+				},
+				"vhost": {
+					desc: msgKernelVirtio,
+				},
+				"vhost_net": {
+					desc: msgKernelVirtioNet,
+				},
+				"vhost_vsock": {
+					desc:     msgKernelVirtioVhostVsock,
+					required: false,
+				},
+			}
 		}
 	} else if cpuType == cpuTypeAMD {
 		archRequiredCPUFlags = map[string]string{
@@ -155,7 +175,18 @@ func kvmIsUsable() error {
 	return genericKvmIsUsable()
 }
 
-func archHostCanCreateVMContainer() error {
+// acrnIsUsable determines if it will be possible to create a full virtual machine
+// by creating a minimal VM and then deleting it.
+func acrnIsUsable() error {
+	return genericAcrnIsUsable()
+}
+
+func archHostCanCreateVMContainer(onVMM bool) error {
+
+	if onVMM {
+		return acrnIsUsable()
+	}
+
 	return kvmIsUsable()
 }
 
