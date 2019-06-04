@@ -8,12 +8,12 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/kata-containers/runtime/pkg/katautils"
 	"github.com/sirupsen/logrus"
-	"regexp"
-	"strconv"
 )
 
 const (
@@ -59,7 +59,7 @@ func setCPUtype() error {
 	return nil
 }
 
-func archHostCanCreateVMContainer() error {
+func archHostCanCreateVMContainer(onVMM bool) error {
 	return kvmIsUsable()
 }
 
