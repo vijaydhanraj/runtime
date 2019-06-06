@@ -52,7 +52,7 @@ const (
 )
 
 var (
-	checkRequestTimeout   = 30 * time.Second
+	checkRequestTimeout   = time.Duration(30) * time.Second
 	defaultKataSocketName = "kata.sock"
 	defaultKataChannel    = "agent.channel.0"
 	defaultKataDeviceID   = "channel0"
@@ -1088,7 +1088,6 @@ func (k *kataAgent) buildContainerRootfs(sandbox *Sandbox, c *Container, rootPat
 			} else {
 				rootfs.Source = blockDrive.PCIAddr
 			}
-
 		} else {
 			rootfs.Driver = kataSCSIDevType
 			rootfs.Source = blockDrive.SCSIAddr
@@ -1602,6 +1601,7 @@ func (k *kataAgent) connect() error {
 		return err
 	}
 
+	k.Logger().Info("New client after NewAgentClient and before Install")
 	k.installReqFunc(client)
 	k.client = client
 
@@ -1693,7 +1693,11 @@ func (k *kataAgent) installReqFunc(c *kataclient.AgentClient) {
 	k.reqHandlers = make(map[string]reqFunc)
 	k.reqHandlers["grpc.CheckRequest"] = func(ctx context.Context, req interface{}, opts ...golangGrpc.CallOption) (interface{}, error) {
 		ctx, cancel := context.WithTimeout(ctx, checkRequestTimeout)
-		defer cancel()
+		defer func() {
+			k.Logger().Info("calling CANCEL as k.client.Check failed")
+			cancel()
+		}()
+		k.Logger().WithField("Timeout", checkRequestTimeout).Info("calling k.client.Check as send request")
 		return k.client.Check(ctx, req.(*grpc.CheckRequest), opts...)
 	}
 	k.reqHandlers["grpc.ExecProcessRequest"] = func(ctx context.Context, req interface{}, opts ...golangGrpc.CallOption) (interface{}, error) {
@@ -1801,6 +1805,7 @@ func (k *kataAgent) sendReq(request interface{}) (interface{}, error) {
 		defer k.disconnect()
 	}
 
+	k.Logger().Info("After successfull connect()")
 	msgName := proto.MessageName(request.(proto.Message))
 	handler := k.reqHandlers[msgName]
 	if msgName == "" || handler == nil {
